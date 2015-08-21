@@ -1,0 +1,457 @@
+﻿Module Module1
+
+    Sub Main()
+
+        ' This is the current version of SDV-LPE -- all others are superceded
+        ' SDV-LPE v2.1
+
+        ' This version compares points if there is a tie for nominations.  It only compares the (1,1), (1,2), and (1,2,2) cases
+        ' This version outputs data as a comma-delimeted file
+        ' This version outputs a history file
+        ' This version does not remove works from the works list, but instead replaces them with "eliminated"
+        ' This version outputs the number of each type of fractional points each work receives, each round
+
+
+
+        ' A flag to tell us when we're done
+        Dim done As Boolean = False
+
+        ' Round counter
+        Dim intRoundNumber As Integer = 0
+
+        ' A flag to check if a nomination is valid
+        Dim validNomination As Boolean = False
+
+        ' A temporary array used when shortening the WorksList (NOT NEEDED FOR EPH ITSELF)
+        Dim strTempWorksList(0 To 0) As String
+
+        ' Define the array of all nominated works
+        Dim strWorkslist(0 To 0) As String
+
+        ' We must have at least one work
+        strWorkslist(0) = "none eliminated"
+
+        ' Read in the works from the input file "works.txt"
+        Using MyReader As New Microsoft.VisualBasic.
+                              FileIO.TextFieldParser(
+                                "works.txt")
+            MyReader.TextFieldType = FileIO.FieldType.Delimited
+            MyReader.SetDelimiters(",")
+            Dim currentRow As String()
+            While Not MyReader.EndOfData
+                Try
+                    currentRow = MyReader.ReadFields()
+                    ReDim Preserve strWorkslist(0 To UBound(strWorkslist) + 1)
+                    For i = 0 To UBound(currentRow)
+                        strWorkslist(UBound(strWorkslist)) = currentRow(i)
+                    Next
+                Catch ex As Microsoft.VisualBasic.
+                            FileIO.MalformedLineException
+                    MsgBox("Line " & ex.Message &
+                    "is not valid and will be skipped.")
+                End Try
+            End While
+        End Using
+
+        ' This is the total number of works being considered; used for the history file (NOT NEEDED FOR EPH ITSELF)
+        Dim intTotalWorks As Integer
+        intTotalWorks = UBound(strWorkslist)
+
+        Dim intTiedWorks(0 To intTotalWorks, 0 To 0) As Integer
+
+        ' Array to hold the points history file (NOT NEEDED FOR EPH ITSELF)
+        Dim dblPointsHistory(0 To intTotalWorks, 0 To 0) As Double
+
+        ' Array to hold the nominations history file (NOT NEEDED FOR EPH ITSELF)
+        Dim intNominationsHistory(0 To intTotalWorks) As Integer
+
+        ' Array to hold the names of the original works (NOT NEEDED FOR EPH ITSELF)
+        Dim strWorksHistory(0 To intTotalWorks) As String
+
+        ' Arrays to hold number of fractional points each work receives (NOT NEEDED FOR EPH ITSELF)
+        Dim int1(0 To intTotalWorks) As Integer
+        Dim int05(0 To intTotalWorks) As Integer
+        Dim int033(0 To intTotalWorks) As Integer
+        Dim int025(0 To intTotalWorks) As Integer
+        Dim int02(0 To intTotalWorks) As Integer
+
+        ' Initialize the points for each work into round 0
+        ' Also load the names of the works (since they are deleted as works are eliminated) (NOT NEEDED FOR EPH ITSELF)
+        For i = 0 To intTotalWorks
+            dblPointsHistory(i, 0) = 0
+            strWorksHistory(i) = strWorkslist(i)
+        Next
+
+        ' Count the current number of non-eliminated works 
+        Dim intCurrentNumWorks As Integer
+        intCurrentNumWorks = intTotalWorks
+
+
+        ' Define the array of all ballots, each having up to 5 nominations
+        ' Note that in VB only the last dimension can be resized, so we will have to make the voter number be the last dimension and have a fixed number of nominations on the ballot
+        Dim strBallot(0 To 4, 0 To 0) As String
+
+        ' We must have at least one ballot
+        strBallot(0, 0) = "none"
+        strBallot(1, 0) = "none"
+        strBallot(2, 0) = "none"
+        strBallot(3, 0) = "none"
+        strBallot(4, 0) = "none"
+
+        ' Read in the ballots from the input file "ballots.txt"
+        Using MyReader As New Microsoft.VisualBasic.
+                              FileIO.TextFieldParser(
+                                "ballots.txt")
+            MyReader.TextFieldType = FileIO.FieldType.Delimited
+            MyReader.SetDelimiters(",")
+            Dim currentRow As String()
+            While Not MyReader.EndOfData
+                Try
+                    currentRow = MyReader.ReadFields()
+                    ReDim Preserve strBallot(0 To 4, 0 To UBound(strBallot, 2) + 1)
+                    For i = 0 To UBound(currentRow)
+                        strBallot(i, UBound(strBallot, 2)) = currentRow(i)
+                    Next
+                Catch ex As Microsoft.VisualBasic.
+                            FileIO.MalformedLineException
+                    MsgBox("Line " & ex.Message &
+                    "is not valid and will be skipped.")
+                End Try
+            End While
+        End Using
+
+        ' Various variables
+        ' Use UBound(strWorksList) any time you need the current number of works being considered
+        ' Use UBound(strBallot,2) any time you need the current number of ballots
+
+        Do While done = False
+            ' Start a round
+            intRoundNumber = intRoundNumber + 1
+
+            ' Expand the points history array (NOT NEEDED FOR EPH ITSELF)
+            ReDim Preserve dblPointsHistory(0 To intTotalWorks, 0 To intRoundNumber)
+
+            ' Define an array which tracks the current number of points each work has
+            Dim dblPoints(0 To UBound(strWorkslist)) As Double
+
+            ' Define a variable to store the calculated number of points from each ballot (only needed to output fractional point counts) (NOT NEEDED FOR EPH ITSELF)
+            Dim dblAddPoints As Double
+
+            ' Define an array which tracks the number of nominations each work has
+            Dim intNominations(0 To UBound(strWorkslist)) As Integer
+
+            ' Number of nominations on a given ballot
+            Dim intNumNominations(0 To UBound(strBallot, 2)) As Integer
+
+            ' Initialize them to zero
+            For Each i In intNumNominations
+                intNumNominations(i) = 0
+            Next
+
+            ' Zero out the fractional point counts (NOT NEEDED FOR EPH ITSELF)
+            For i = 0 To intTotalWorks
+                int1(i) = 0
+                int05(i) = 0
+                int033(i) = 0
+                int025(i) = 0
+                int02(i) = 0
+            Next
+
+            ' Calculate how many points each work currently has
+            ' Iterate over all ballots
+            For ballotID = 0 To UBound(strBallot, 2)
+                ' Find out number of nominations that are not "none" (would be nice if we could resize the first dimension, but alas...)
+                ' This tells how much that ballot's vote is divided by to give the total number of points
+                For nominationSlot = 0 To UBound(strBallot, 1)
+                    ' Test to see if the nomination is valid (i.e., on the WorksList)
+                    validNomination = False
+                    For work = 0 To UBound(strWorkslist)
+                        If strBallot(nominationSlot, ballotID) = strWorkslist(work) Then
+                            ' Nomination is valid
+                            intNumNominations(ballotID) = intNumNominations(ballotID) + 1
+                            validNomination = True
+                        End If
+                    Next
+                    ' If it is not valid, then set that slot equal to "none"; Note that when a work is eliminated, any nominations for that work will also be set to none
+                    If validNomination = False Then strBallot(nominationSlot, ballotID) = "none"
+                Next
+            Next
+
+            ' Now compare each work on the ballot in question to the works list.  If it matches, give that work the proper number of points
+            ' Iterate over all ballots
+            dblPoints(0) = 1000000.0
+            For ballotID = 0 To UBound(strBallot, 2)
+                For nominationSlot = 0 To UBound(strBallot, 1)
+                    For work = 0 To UBound(strWorkslist)
+                        If strBallot(nominationSlot, ballotID) = strWorkslist(work) Then
+                            ' Give them the points
+                            dblAddPoints = 1 / CDbl(intNumNominations(ballotID))
+
+                            dblPoints(work) = dblPoints(work) + dblAddPoints
+
+                            ' Here, store an integer number of fractional points the work has received (NOT NEEDED FOR EPH ITSELF)
+                            If dblAddPoints = 1.0 Then int1(work) = int1(work) + 1
+                            If dblAddPoints = 0.5 Then int05(work) = int05(work) + 1
+                            If dblAddPoints = 1.0 / 3.0 Then int033(work) = int033(work) + 1
+                            If dblAddPoints = 0.25 Then int025(work) = int025(work) + 1
+                            If dblAddPoints = 0.2 Then int02(work) = int02(work) + 1
+
+                            ' Increase the number of nominations they have received
+                            intNominations(work) = intNominations(work) + 1
+                        End If
+                    Next
+                Next
+            Next
+
+            ' Flag for checking if the work is still alive
+            Dim boolMatchfound As Boolean
+
+            ' Store the history for this round (NOT NEEDED FOR EPH ITSELF)
+            For i = 0 To intTotalWorks
+                boolMatchfound = False
+                ' Cycle the through the current list of surviving works to see if you get a match, otherwise, keep the points from the previous round
+                For j = 0 To UBound(strWorkslist)
+                    If strWorksHistory(i) = strWorkslist(j) Then
+                        ' Match found, set the points for this round
+                        boolMatchfound = True
+                        dblPointsHistory(i, intRoundNumber) = dblPoints(j)
+                        intNominationsHistory(i) = intNominations(j)
+                    End If
+                Next
+                If boolMatchfound = False Then
+                    ' No match found; the work has already been eliminated, so set the points history to that of the previous round
+                    ' Note that total nominations never changes
+                    dblPointsHistory(i, intRoundNumber) = dblPointsHistory(i, intRoundNumber - 1)
+                End If
+            Next
+
+            ' Print the current works' status
+            My.Computer.FileSystem.WriteAllText("results.txt", "Current Works for Round ", True)
+            My.Computer.FileSystem.WriteAllText("results.txt", intRoundNumber, True)
+            My.Computer.FileSystem.WriteAllText("results.txt", ":", True)
+            My.Computer.FileSystem.WriteAllText("results.txt", vbCrLf, True)
+
+            For i = 1 To UBound(strWorkslist)
+                If strWorkslist(i) <> "eliminated" Then
+                    My.Computer.FileSystem.WriteAllText("results.txt", strWorkslist(i), True)
+                    My.Computer.FileSystem.WriteAllText("results.txt", ",", True)
+                    My.Computer.FileSystem.WriteAllText("results.txt", dblPoints(i), True)
+                    My.Computer.FileSystem.WriteAllText("results.txt", ",", True)
+                    My.Computer.FileSystem.WriteAllText("results.txt", intNominations(i), True)
+                    My.Computer.FileSystem.WriteAllText("results.txt", vbCrLf, True)
+                End If
+            Next
+
+            ' Save the fractional point totals for this round (NOT NEEDED FOR EPH ITSELF)
+            My.Computer.FileSystem.WriteAllText("FracPoints.csv", "Current Fractional Points for Round ", True)
+            My.Computer.FileSystem.WriteAllText("FracPoints.csv", intRoundNumber, True)
+            My.Computer.FileSystem.WriteAllText("FracPoints.csv", ":", True)
+            My.Computer.FileSystem.WriteAllText("FracPoints.csv", vbCrLf, True)
+
+            For i = 1 To intTotalWorks
+                My.Computer.FileSystem.WriteAllText("FracPoints.csv", strWorkslist(i), True)
+                My.Computer.FileSystem.WriteAllText("FracPoints.csv", ",", True)
+                My.Computer.FileSystem.WriteAllText("FracPoints.csv", int1(i) * 1, True)
+                My.Computer.FileSystem.WriteAllText("FracPoints.csv", ",", True)
+                My.Computer.FileSystem.WriteAllText("FracPoints.csv", int05(i) * 0.5, True)
+                My.Computer.FileSystem.WriteAllText("FracPoints.csv", ",", True)
+                My.Computer.FileSystem.WriteAllText("FracPoints.csv", int033(i) * 0.33, True)
+                My.Computer.FileSystem.WriteAllText("FracPoints.csv", ",", True)
+                My.Computer.FileSystem.WriteAllText("FracPoints.csv", int025(i) * 0.25, True)
+                My.Computer.FileSystem.WriteAllText("FracPoints.csv", ",", True)
+                My.Computer.FileSystem.WriteAllText("FracPoints.csv", int02(i) * 0.2, True)
+                My.Computer.FileSystem.WriteAllText("FracPoints.csv", vbCrLf, True)
+            Next
+            My.Computer.FileSystem.WriteAllText("FracPoints.csv", vbCrLf, True)
+
+            ' Having gone through all of the ballots and given all points to the works, now find the two works with the smallest number of points
+            ' We will use an array to store the work numbers so that we can account for ties; note that all works listed should have the same points by definition
+            ' intLowestPoints is lowest points, intSecondLowestPoints is second lowest points
+            Dim intLowestPoints(0 To 0) As Integer
+            Dim intSecondLowestPoints(0 To 0) As Integer
+
+            ' set intLowestPoints to be the first index for dblPoints (which is set to be 10000)
+            intLowestPoints(0) = 0
+
+            'Now cycle through the workslist and see if we find something with fewer points.  If it's less, replace the current intLowestPoints; if it's equal, expand intLowestPoints
+            For workID = 1 To UBound(strWorkslist)
+                ' Skip any works that have been eliminated
+                If strWorkslist(workID) <> "eliminated" Then
+                    ' We are safe to compare to the point totals of the first work in the intLowestPoints, since by definition all works in that array have the same number of points
+                    If dblPoints(workID) < dblPoints(intLowestPoints(0)) Then
+                        ' We have a new lowest point total work, so clear out the old array
+                        ReDim intLowestPoints(0 To 0)
+                        ' Store the new lowest point work index
+                        intLowestPoints(0) = workID
+                    ElseIf dblPoints(workID) = dblPoints(intLowestPoints(0)) Then
+                        ' We have a tie for lowest point work, so expand the old array, preserving its contents
+                        ReDim Preserve intLowestPoints(0 To UBound(intLowestPoints) + 1)
+                        intLowestPoints(UBound(intLowestPoints)) = workID
+                    End If
+                End If
+            Next
+
+            ' We now have the lowest point work(s).  Let's find the second-lowest point work(s).
+            intSecondLowestPoints(0) = 0
+
+            'Now cycle through the workslist and see if we find something with fewer points, but more than the lowest points.  If it's less, replace the current intSecondLowestPoints; if it's equal, expand intSecondLowestPoints
+            For workID = 1 To UBound(strWorkslist)
+                ' Skip any works that have been eliminated
+                If strWorkslist(workID) <> "eliminated" Then
+                    ' We are safe to compare to the point totals of the first work in the intSecondLowestPoints, since by definition all works in that array have the same number of points
+                    If dblPoints(workID) < dblPoints(intSecondLowestPoints(0)) And dblPoints(workID) > dblPoints(intLowestPoints(0)) Then
+                        ' We have a new second-lowest point total work, so clear out the old array
+                        ReDim intSecondLowestPoints(0 To 0)
+                        ' Store the new second-lowest point work index
+                        intSecondLowestPoints(0) = workID
+                    ElseIf dblPoints(workID) = dblPoints(intSecondLowestPoints(0)) And dblPoints(workID) > dblPoints(intLowestPoints(0)) Then
+                        ' We have a tie for second-lowest point work, so expand the old array, preserving its contents
+                        ReDim Preserve intSecondLowestPoints(0 To UBound(intSecondLowestPoints) + 1)
+                        intSecondLowestPoints(UBound(intSecondLowestPoints)) = workID
+                    End If
+                End If
+            Next
+
+            ' We now have our potential works to be eliminated
+            ' Compare the total number of nominations each of our works that have been selected for possible elimination have received
+            ' We'll store the workIDs to be eliminated in intEliminateWorks
+            Dim intEliminateWorks(0 To 0) As Integer
+
+            ' Initialize by setting to the index of the first lowest point total work
+            intEliminateWorks(0) = intLowestPoints(0)
+
+            ' If we have a tie for works with lowest point total, then we will not look at the second-lowest point total works at all (this is the 1,1 case)
+            If UBound(intLowestPoints) > 0 Then
+                ' Okay more than one work has the lowest point total (1,1 case), so we won't consider the second-lowest point works
+                ' Compare total nominations among all the tied works
+                For workID = 1 To UBound(intLowestPoints)
+                    ' We are safe comparing to just the first work in the intEliminateWorks array since they will all have the same number of nominations
+                    If intNominations(intLowestPoints(workID)) < intNominations(intEliminateWorks(0)) Then
+                        ' We have a new lowest total number of nominations, so clear the intEliminateWorks array
+                        ReDim intEliminateWorks(0 To 0)
+                        ' Store the index of the new least number of nominations work
+                        intEliminateWorks(0) = intLowestPoints(workID)
+                    ElseIf intNominations(intLowestPoints(workID)) = intNominations(intEliminateWorks(0)) Then
+                        ' We have a tie for lowest total nominations, so expand the intEliminateWorks array
+                        ReDim Preserve intEliminateWorks(0 To UBound(intEliminateWorks) + 1)
+                        ' Store the index of the new tied work in the last slot
+                        intEliminateWorks(UBound(intEliminateWorks)) = intLowestPoints(workID)
+                    End If
+                Next
+            Else
+                ' We did not have a tie for lowest points so we will compare to the second-lowest works (1,2 and 1,2,2 cases)
+                ' Do we have a tie for second-lowest points?
+                If UBound(intSecondLowestPoints) = 0 Then
+                    ' There are no ties at all -- this is the 1,2 case; now compare nominations
+                    If intNominations(intLowestPoints(0)) < intNominations(intSecondLowestPoints(0)) Then
+                        ' The lowest point work has the least nominations; eliminate it
+                        intEliminateWorks(0) = intLowestPoints(0)
+
+                    ElseIf intNominations(intLowestPoints(0)) > intNominations(intSecondLowestPoints(0)) Then
+                        ' The second-lowest point work has the least nominations; eliminate it
+                        intEliminateWorks(0) = intSecondLowestPoints(0)
+
+                    ElseIf intNominations(intLowestPoints(0)) = intNominations(intSecondLowestPoints(0)) Then
+                        ' The lowest and second-lowest works have the same number of nominations, so eliminate the lowest point work
+                        intEliminateWorks(0) = intLowestPoints(0)
+
+                    End If
+                Else
+                    ' There is a tie for second-lowest points -- this is the 1,2,2 case; we need to compare nominations for the lowest point work and each second-lowest point work
+                    ' We will eliminate the work(s) with the least number of nominations
+                    ' Initialize with the lowest point work, since there will always just be one at this stage
+                    intEliminateWorks(0) = intLowestPoints(0)
+
+                    'Cycle through all the second-lowest point works and see if they have fewer nominations
+                    For workID = 0 To UBound(intSecondLowestPoints)
+                        ' We are safe comparing to the first element in intLeastNominations since by definition they have the same number of nominations
+                        If intNominations(intSecondLowestPoints(workID)) < intNominations(intEliminateWorks(0)) Then
+                            ' We have a new least number of nominations, so clear out the intLeastNominations array
+                            ReDim intEliminateWorks(0 To 0)
+                            ' Store the new least nominations index
+                            intEliminateWorks(0) = intSecondLowestPoints(workID)
+                        ElseIf intNominations(intSecondLowestPoints(workID)) = intNominations(intEliminateWorks(0)) Then
+                            ' The lowest and second-lowest works have the same number of nominations, so eliminate the lowest point work
+                            ReDim intEliminateWorks(0 To 0)
+                            intEliminateWorks(0) = intLowestPoints(0)
+                        End If
+                    Next
+
+                End If
+            End If
+
+            ' We now know the work (or works, if there is a tie in number of nominations received) that will be eliminated
+            ' We need to make sure that we don't reduce the list below 5
+            ' If eliminating the loser(s) will bring us below 5, stop, and don't eliminate anything; if ther ewere ties, then that means we will have more than 5 works on the ballot
+            If intCurrentNumWorks - (UBound(intEliminateWorks) + 1) >= 5 Then
+                ' We can safely remove all of the losers
+                ' Loop through the list of losers (they are all tied in nominations received, so can all be eliminated) and report to the console that they are gone
+                My.Computer.FileSystem.WriteAllText("results.txt", vbCrLf, True)
+                My.Computer.FileSystem.WriteAllText("results.txt", "Results of Round: ", True)
+                My.Computer.FileSystem.WriteAllText("results.txt", intRoundNumber, True)
+                My.Computer.FileSystem.WriteAllText("results.txt", vbCrLf, True)
+                My.Computer.FileSystem.WriteAllText("results.txt", "Work(s) Eliminated: ", True)
+                My.Computer.FileSystem.WriteAllText("results.txt", vbCrLf, True)
+                For i = 0 To UBound(intEliminateWorks)
+                    My.Computer.FileSystem.WriteAllText("results.txt", strWorkslist(intEliminateWorks(i)), True)
+                    My.Computer.FileSystem.WriteAllText("results.txt", " Points: ", True)
+                    My.Computer.FileSystem.WriteAllText("results.txt", dblPoints(intEliminateWorks(i)), True)
+                    My.Computer.FileSystem.WriteAllText("results.txt", " Nominations: ", True)
+                    My.Computer.FileSystem.WriteAllText("results.txt", intNominations(intEliminateWorks(i)), True)
+                    My.Computer.FileSystem.WriteAllText("results.txt", vbCrLf, True)
+                Next
+
+
+                My.Computer.FileSystem.WriteAllText("results.txt", vbCrLf, True)
+
+                ' Set all the eliminated work titles to be "eliminated"
+                For i = 0 To UBound(intEliminateWorks)
+                    strWorkslist(intEliminateWorks(i)) = "eliminated"
+                    intCurrentNumWorks = intCurrentNumWorks - 1
+                Next
+
+            Else
+                'We're done with the Hugo final ballot, set the flag
+                done = True
+                'Print the Hugo Ballot, note: Skip entry 0 since it is a dummy that will never be eliminated
+                My.Computer.FileSystem.WriteAllText("results.txt", vbCrLf, True)
+                My.Computer.FileSystem.WriteAllText("results.txt", "Final Hugo Ballot:", True)
+                My.Computer.FileSystem.WriteAllText("results.txt", vbCrLf, True)
+
+                For i = 1 To UBound(strWorkslist)
+                    If strWorkslist(i) <> "eliminated" Then
+                        My.Computer.FileSystem.WriteAllText("results.txt", strWorkslist(i), True)
+                        My.Computer.FileSystem.WriteAllText("results.txt", " Points: ", True)
+                        My.Computer.FileSystem.WriteAllText("results.txt", dblPoints(i), True)
+                        My.Computer.FileSystem.WriteAllText("results.txt", " Nominations: ", True)
+                        My.Computer.FileSystem.WriteAllText("results.txt", intNominations(i), True)
+                        My.Computer.FileSystem.WriteAllText("results.txt", vbCrLf, True)
+                    End If
+                Next
+                My.Computer.FileSystem.WriteAllText("results.txt", vbCrLf, True)
+            End If
+
+            ' Note that there is no need to clean up the ballots to eliminate works that have lost; this is handled automatically in the validation check at the beginning of each round.
+
+        Loop
+
+        ' Dump the history file (NOT NEEDED FOR EPH ITSELF)
+        For i = 1 To intRoundNumber
+            My.Computer.FileSystem.WriteAllText("history.csv", "Round: ", True)
+            My.Computer.FileSystem.WriteAllText("history.csv", i, True)
+            My.Computer.FileSystem.WriteAllText("history.csv", vbCrLf, True)
+            For j = 1 To intTotalWorks
+                My.Computer.FileSystem.WriteAllText("history.csv", strWorksHistory(j), True)
+                My.Computer.FileSystem.WriteAllText("history.csv", ",", True)
+                My.Computer.FileSystem.WriteAllText("history.csv", dblPointsHistory(j, i), True)
+                My.Computer.FileSystem.WriteAllText("history.csv", ",", True)
+                My.Computer.FileSystem.WriteAllText("history.csv", intNominationsHistory(j), True)
+                My.Computer.FileSystem.WriteAllText("history.csv", vbCrLf, True)
+            Next
+            My.Computer.FileSystem.WriteAllText("history.csv", vbCrLf, True)
+        Next
+
+
+    End Sub
+
+End Module
